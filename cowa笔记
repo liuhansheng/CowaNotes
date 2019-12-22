@@ -1,0 +1,259 @@
+1. 常用指令 
+	   :watch -n 0.5 chronyc sources -v //时间同步
+	   :w !sudo tee % //保存无权限文件
+	   ip -d -s link show can0 //看can线的状态是否有报错。
+	   ifconfig can0 down //关闭can线
+	   ip link set can0 down//关闭can线
+	   ip link set can0 up type can bitrate 250000  //设置can线波特率
+	   minicom -b 9600 -D /dev/ttymxc0 进minicom//第二代adu为9600对应mxc1,115200对应mxc0,配置永远用9600
+	   minicom -b 115200 -D /dev/ttyS1//imu数据
+	   minicom -b 115200 -D /dev/ttyUSB0 //gps原始数据
+	   systemctl status cowa.service
+	   ./docker.py  start autopilot.launch qirui-eq1.yaml
+	   docker.py 启动boot->proxy->crmw.yaml
+	                    ->launch.py (整个自动驾驶启动脚本) 
+	   export ROS_MASTER_URI=http://192.168.0.2:11311   (告诉ros的master在哪个主机里面)
+	   docker load -i cowarobot.tar
+	   进docker 然后 ./tools/autopilot/make 编译cr_msg
+	   远程进入车：ssh -p 2223 ...@115.159.197.55
+	   获取激活码：https://hub.sandbox.cowarobot.com/admin
+	   上传文件：curl --upload-file ./hello.txt https://transfer.sh/hello.txt
+	   应用标识AK（App Key）key: A4880gcnu3ju 
+	   应用密钥AS（App Secret）secret: d7ecb1a28abc510e908a0d9ac2ad93c5f44f570864dcf5a77b7f3f4c3a31bc3b 
+
+	   sudo route del default enp0s31f6 //删除默认网关
+	   
+	   meld(对比软件)
+
+	   rosrun autopilot planner _map:=/cowarobot/maps/beidou/ _conf:=/cowarobot/devel/conf/planning/ _level:=debug _obstacles:=/predict
+	   控制参数： 
+	   stanley_k : 车辆相应系数，默认1.6，最大不超过3.0
+	   stanley_lpf ： 车辆转向调节系数，默认0.8,最大1.0
+	   stanley_kvk: 转弯时的速度：默认0.9
+	   maxVel：
+	   minVel： 
+	   theta_comp: 角度补偿，实际延边距离和设定距离有差别，如果实际距离更大，改小
+
+	   规划参数：
+	   planning_config:
+	   		guiding_line_weight:避障路径拐回来的延边距离
+	   		obstacle_buffer: 避障离障碍物的距离
+	   		road_buffer: 避障离左边车道的距离
+	   		l_weight: 大小决定避障路径的曲率（越大越弯）
+	   		lateral_adjust_coeff: 避障会延中心线走的避障距离,默认0.8。
+
+	   scenario_side_pass
+	   		keep_for_lose: 晚点退出避障
+	   v3：
+		./docker.py -start data/launch.dag /data/test.yaml(docker 外)
+		mainboard -d data/launch.dag --param=data/test.yaml
+		mainboard --so lib/libvehicle --period=20 --com Vehicle --data=data/test.yaml
+		mainboard --so lib/libvehicle.so --com Vehicle --period 20 --alsologtostderr=1 --minloglevel=0 --param=data/hulk102.yaml
+		export CRPILOT_PYTHON=$CRPILOT_ROOT/lib/python2.7:$CRPILOT_ROOT/lib/python2.7/msgs(标激光需要设置一下setup.bash)
+
+
+
+
+1.1	 
+	 	更新arm板子：
+	   ./stm32_update_2.0 u stmF405.bin(两次)
+	   然后./stm32_reboot_2.0
+
+
+   
+
+
+2.launch 文件解析（autopilot.launch）
+	    tf坐标变换：gps和imu坐标变换到base坐标系里面。
+	     <group if="$(hasparam gpstf)">
+	        <node pkg="tf" type="static_transform_publisher" name="gps2base" args="$(param gpstf) base_link gps 1000" />
+	    </group>
+	    <group if="$(hasparam imutf)">
+	        <node pkg="tf" type="static_transform_publisher" name="imu2base" args="$(param imutf) base_link imu 1000" />
+	    </group>
+	    把坐标信息定位为全球坐标，知道车在哪。（crlocation）
+
+	    <group unless="$(arg drive)">
+	           <node pkg="autopilot" type="crlocation" name="crlocation" output="log" />
+	           <node pkg="autopilot" type="obstacle" name="obstacle" output="screen" />
+	    </group>
+	    minotor起来没有网页，可能planner没起来。
+	    <node pkg="autopilot" type="app.py" name="monitor" output="log"/>
+	    <node pkg="autopilot" type="path.py" name="planner" output="screen"/>
+
+3.4g卡信号检测
+		  先kill base等，占端口，4g设备文件接在ttyusb3中。
+		  cat /dev/ttyUSB3&  
+		  echo -e "AT+CSQ\r\n" > /dev/ttyUSB3
+		  返回结果如下：
+		  +CSQ: 21,99
+		  OK
+		    AT+CPIN? //查询是否插入SIM卡
+		    AT+CSQ //查询信号质量
+		    AT＋COPS? //查询运营商
+		  CME error 13 卡的问题应该。插拔试试。
+
+4.激光配置
+		   Host(Destination) IP Address改为192.168.1.2 Port改为2368 
+		   Network(Sensor） IP  Address改为192.168.1.201 Mask改为255.255.255.0 GateWay改为192.168.1.1，然后点击下面的“set”按钮
+
+5.激光标定
+		 1.进param改tf值
+		 2.进docker.py dev 运行./tools/launch.py devel/autopilot/launch/autopilot.launch param/c200-22.yaml
+		 3.sudo route add default gw 192.168.1.2 然后 export ROS_MASTER_URI=http://192.168.0.2:11311
+		 一般为yaw，pitch，roll，符合右手法则。握拳为正。
+
+6.配置335x
+		 1.通过串口连接335x，然后 minicom -s 进minicom，
+		  选择串口设置serisl port setup 进去改为/dev/ttyUSB0（也有可能不是你，可进dev里看是哪个USB连接的串口）。
+
+7.base.cfg文件内容。
+		CARID = xx  #例如 CARID = 20
+		CARMODEL='xxx'  #例如 CARMODEL = 'S2000', 'EQ1'
+		APIKEY = 'xxx'
+
+8.rc.log文件
+		#!/bin/sh -e
+		echo nameserver 114.114.114.114 >> /etc/resolv.conf
+		/etc/hostapd/startup &
+		/home/cowa/CRPilot/docker.py start autopilot.launch zl18c-16.yaml
+		iptables -t nat -A POSTROUTING -s 192.168.1.0/24 -o enp2s0 -j MASQUERADE
+		ufw disable
+		route add default gw 192.168.0.3
+		sleep 3
+		ufw disable 
+		//route add default gw 192.168.0.3
+		//新版本rc.log
+		        #!/bin/sh -e
+		        cpufreq-set -g performance
+		        echo nameserver 114.114.114.114 >> /etc/resolv.conf
+		        ufw disable
+		        sleep 3
+		        /home/cowa/CRPilot/docker.py start autopilot.launch sz18c-35.yaml
+
+
+		        while [ True ]; do
+		            ping 192.168.14.2 -c 1 -W 1 > /dev/null
+		            if [ $? == 0 ]; then
+		                echo "local net is ok"
+		                break
+		            fi
+		            sleep 1
+		        done
+		        while [ True ]; do
+		            ping 192.168.0.2 -c 1 -W 1 > /dev/null
+		            if [ $? == 0 ]; then
+		                echo "local net is ok"
+		                break
+		            fi
+		            sleep 1
+		        done
+		        ptpd -M -i enp4s0
+		        ptpd -M -i enp5s0
+		        ptpd -M -i enp6s0
+		        ptpd -M -i enp7s0
+		  exit 0
+
+
+
+9.配置ifm编码器
+		在我们的ADU上可以通过如下指令进行配置
+		ip link set can0 down
+		ip link set can0 up type can bitrate 125000
+		cansend can0 -i 0x00 0x80 0x00
+		cansend can0 -i 0x00 0x01 0x00
+		cansend can0 -i 0x620 0x2B 0x00 0x18 0x05 0x64 0x00 0x00 0x00 #100ms//二选一
+		cansend can0 -i 0x620 0x2B 0x00 0x18 0x05 0x32 0x00 0x00 0x00 #50ms//二选一
+		cansend can0 -i 0x620 0x2F 0x01 0x30 0x00 0x04 0x00 0x00 0x00 #250Kbps// 3=125,4=250,5=500;
+		cansend can0 -i 0x620 0x23 0x00 0x23 0x00 0x55 0xAA 0xAA 0x55//保存
+		ip link set can0 down
+		ip link set can0 up type can bitrate 250000
+
+		cansend can1 -i 0x469 0x10 0x00 0x00 0x00 0x00 0x55 0x00 0x45
+
+10.ping 通8.8.8.8不通百度，在/etc/resolv.conf。
+
+11.拉docker镜像帐号密码 zshizhihao 9924260912
+		拉镜像之后保存本地 sudo docker save hub.tencentyun.com/autopilot/crpilot:1.3 -O cowarobot_1.3.tar
+		git帐号 liuhansheng@cowarobot.com liuhansheng
+		wiki: hansheng.liu lhs123123
+		wiki:15951133729  key:my,goddess.0218
+		893003171@qq.com  Lhs123123123
+   拉base，root：wget https://crbase.oss-cn-shanghai.aliyuncs.com/imx6/base.tar.gz
+   				wget https://crbase.oss-cn-shanghai.aliyuncs.com/imx6/root.tar.gz
+   				wget https://crpilot.oss-cn-shanghai.aliyuncs.com/vx.y.z.t.tar.gz #如v0.3.1.0」
+
+12.github  分支管理
+		git clone 克隆分支    git pull 拉分支   git push 推分支  本地新建分支git branch neww（本地新建neww分支）              
+		推送远程分支没有的分支时：git push --set-upstream origin neww
+		修改内容后需要git add .  然后git commit -m"巴拉巴拉"  然后git push
+
+13.FLIR
+		sudo apt-get install ptpd;
+		spinview
+
+14.配置网口
+
+		auto enp8s0
+		iface enp8s0 inet static
+		    address 192.168.1.2
+		    netmask 255.255.255.0
+		    gateway 192.168.1.1
+
+
+		auto enp0s31f6#上面的网口
+		iface enp0s31f6 inet static
+		    address 192.168.0.2
+		    netmask 255.255.255.0
+		    gateway 192.168.0.3
+
+		auto enp4s0
+		iface enp4s0 inet static
+		    address 192.168.11.2
+		    netmask 255.255.255.0
+		    gateway 192.168.0.3
+15.flir id配置
+
+	    192.168.11.3
+	    255.255.255.0
+	    192.168.11.1
+16.定位结果异常自查步骤
+
+	1.使用vim打开crlocation文件，在文件中查找字符串1.001或者或者1.004，并跟负责人确认使用的版本是否正确
+	2.再次检查TF配置是否正确，特别是角度，结合坐标系定义以及车上设备的安装情况确认一遍(imu、GPS、激光雷达、相机，如果有的话)
+	3.检查GPS双天线主从天线是否接反：以主天线为原点指向从天线的向量，方向跟/gps/heading中的方向(0度对应北方，90度对应东方，180度对应南方，270度对应西方)基本一致，如果发现读数与实际方位相反，就是主从天线接反了
+	4.打印/base_info话题，怠速分别前进/后退走几秒钟，查看车速以及四轮速与实际行进速度(m/s)是否基本一致」
+COWA 2.0
+1.rc.local
+	exec 1>/tmp/rc.local.log 2>&1
+	set -x
+
+	cpufreq-set -g performance
+	nvidia-smi -pm 1
+	nvidia-smi -lgc 0,1000
+	nvidia-smi -pl 160.30
+	setserial -v /dev/ttyS1 low_latency
+	ldattach pps /dev/ttyS1
+	ln -s /dev/pps2 /dev/pps3
+	echo 504 > /sys/class/gpio/export 
+	echo out > /sys/class/gpio/gpio504/direction
+	ip link set can0 up type can bitrate 250000 #根据实际波特率调整
+	ip link set can1 up type can bitrate 500000 #根据实际波特率调整
+	route add default gw 192.168.0.1
+	echo nameserver 114.114.114.114 > /etc/resolv.conf
+	runuser -l cowa -c 'mkdir -p /tmp/sock'
+	runuser -l cowa -c 'tmate -S /tmp/sock/tmate.sock new-session -d'
+	#python /home/cowa/crpilot/docker.py -start data/hulk102.dag data/hulk102.yaml
+	exit 0
+2.minicom命令
+	minicom -b 115200 -D /dev/ttyS1//imu数据
+	minicom -b 115200 -D /dev/ttyUSB0 //gps原始数据
+	 profiler_gui {}
+	 md5sum crbag 
+3.毫米波改id：
+   0x200 0x82 0x00 0x00 0x00 0x01 0x80 0x00 0x00 (第4个字节为对应需要修改的id)
+   cansend can1 200#82.00.00.00.01.80.00.00
+4.pid:https://blog.csdn.net/u010312937/article/details/53363831
+
+
+
